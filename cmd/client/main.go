@@ -22,6 +22,12 @@ func main() {
 		return
 	}
 
+	amqp_chan, err := conn.Channel()
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+
 	defer conn.Close()
 	fmt.Println("Connection was successful")
 
@@ -30,10 +36,24 @@ func main() {
 		fmt.Println(err)
 		return
 	}
+	// args := amqp.Table{
+	// 	"x-dead-letter-exchange": "peril_dlx",
+	// }
 
-	pubsub.DeclareAndBind(conn, routing.ExchangePerilDirect, routing.PauseKey+"."+username, routing.PauseKey, pubsub.Transient)
+	pubsub.DeclareAndBind(conn, routing.ExchangePerilTopic, routing.GameLogSlug, routing.GameLogSlug+".*", pubsub.Durable, nil)
 
 	gamestate := gamelogic.NewGameState(username)
+	fmt.Println(gamestate.GetUsername())
+	if err := pubsub.SubscribeJSON(conn, routing.ExchangePerilTopic, "army_moves"+"."+username, "army_moves.*", pubsub.Transient, handlerMove(gamestate)); err != nil {
+		fmt.Println(err)
+		return
+	}
+	go func() {
+		signalChan := make(chan os.Signal, 1)
+		signal.Notify(signalChan, os.Interrupt)
+		<-signalChan
+
+	}()
 
 	for {
 		words := gamelogic.GetInput()
@@ -45,7 +65,12 @@ func main() {
 		case "spawn":
 			gamestate.CommandSpawn(words)
 		case "move":
-			gamestate.CommandMove(words)
+			armymove, err := gamestate.CommandMove(words)
+			if err != nil {
+				return
+			}
+			pubsub.PublishJSON(amqp_chan, routing.ExchangePerilTopic, "army_moves"+"."+username, armymove)
+			fmt.Println("move was published successfully")
 		case "status":
 			gamestate.CommandStatus()
 		case "help":
@@ -58,10 +83,15 @@ func main() {
 			fmt.Println(fmt.Errorf("command invalid"))
 			continue
 		}
-		signalChan := make(chan os.Signal, 1)
-		signal.Notify(signalChan, os.Interrupt)
-		<-signalChan
 
 	}
 
+}
+
+func handlerMove(gs *gamelogic.GameState) func(gamelogic.ArmyMove) pubsub.AckType {
+	return func(mov gamelogic.ArmyMove) pubsub.AckType {
+		defer fmt.Print("> ")
+		_, ack := gs.HandleMove(mov)
+		return ack
+	}
 }

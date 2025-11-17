@@ -30,6 +30,13 @@ func main() {
 	}
 	gamelogic.PrintServerHelp()
 
+	go func() {
+		signalChan := make(chan os.Signal, 1)
+		signal.Notify(signalChan, os.Interrupt)
+		<-signalChan
+
+	}()
+
 	for {
 		str := gamelogic.GetInput()
 		if len(str) == 0 {
@@ -41,6 +48,7 @@ func main() {
 			playingstate_param := &routing.PlayingState{
 				IsPaused: true,
 			}
+			fmt.Print(playingstate_param.IsPaused)
 
 			if err := pubsub.PublishJSON(amqp_chan, routing.ExchangePerilDirect, routing.PauseKey, *playingstate_param); err != nil {
 				fmt.Println(err)
@@ -61,9 +69,7 @@ func main() {
 		default:
 			fmt.Println("Command not understood")
 		}
-		signalChan := make(chan os.Signal, 1)
-		signal.Notify(signalChan, os.Interrupt)
-		<-signalChan
+
 	}
 
 }
