@@ -59,7 +59,7 @@ func DeclareAndBind(
 			return nil, amqp.Queue{}, err
 		}
 	}
-	if err := amqp_chan.QueueBind(queueName, key, exchange, false, nil); err != nil {
+	if err := amqp_chan.QueueBind(amqp_queue.Name, key, exchange, false, nil); err != nil {
 		return nil, amqp.Queue{}, err
 	}
 
